@@ -8,15 +8,11 @@
 
 from datetime import datetime
 from hashlib import sha1, md5
-from random import random
-from time import time
-from urllib import quote
 from urlparse import parse_qsl, urljoin, urlsplit
 
-from rauth.oauth import HmacSha1Signature
+from rauth.oauth1 import hmac_sha1_signer, sign
 from rauth.utils import (absolute_url, CaseInsensitiveDict, ENTITY_METHODS,
-                         FORM_URLENCODED, get_sorted_params,
-                         OPTIONAL_OAUTH_PARAMS)
+                         FORM_URLENCODED, get_sorted_params)
 
 from requests.sessions import Session
 
@@ -106,8 +102,7 @@ class OAuth1Session(RauthSession):
         self.access_token_secret = access_token_secret
 
         #: Signing method.
-        signature = signature or HmacSha1Signature
-        self.signature = signature()
+        self.signature = signature or hmac_sha1_signer
 
         super(OAuth1Session, self).__init__(service)
 
@@ -153,21 +148,24 @@ class OAuth1Session(RauthSession):
 
         req_kwargs.setdefault('timeout', OAUTH1_DEFAULT_TIMEOUT)
 
-        oauth_params = self._get_oauth_params(req_kwargs)
+        sign_args = {'req_kwargs': req_kwargs,
+                     'url': url,
+                     'method': method,
+                     'consumer_key': self.consumer_key,
+                     'consumer_secret': self.consumer_secret,
+                     'access_token': self.access_token,
+                     'access_token_secret': self.access_token_secret,
+                     'signer': self.signature}
 
-        # sign the request
-        oauth_params['oauth_signature'] = \
-            self.signature.sign(self.consumer_secret,
-                                self.access_token_secret,
-                                method,
-                                url,
-                                oauth_params,
-                                req_kwargs)
+        if not header_auth:
+            signed_params = sign(**sign_args)
 
         if header_auth and not 'oauth_signature' in \
                 req_kwargs['headers'].get('Authorization', ''):
-            header = self._get_auth_header(oauth_params, realm)
-            req_kwargs['headers'].update({'Authorization': header})
+            req_kwargs['headers'].update({'Authorization':
+                                          sign(header_auth=True,
+                                               realm=realm,
+                                               **sign_args)})
         elif entity_method and not 'oauth_signature' in \
                 (req_kwargs.get('data') or {}):
             req_kwargs['data'] = req_kwargs.get('data') or {}
@@ -184,67 +182,15 @@ class OAuth1Session(RauthSession):
             #
             #   http://tools.ietf.org/html/rfc5849#section-3.5.3
             if form_urlencoded:
-                req_kwargs['data'].update(oauth_params)
+                req_kwargs['data'].update(signed_params)
             else:
                 req_kwargs.setdefault('params', {})
-                req_kwargs['params'].update(oauth_params)
+                req_kwargs['params'].update(signed_params)
         elif not 'oauth_signature' in url:
             req_kwargs.setdefault('params', {})
-            req_kwargs['params'].update(oauth_params)
+            req_kwargs['params'].update(signed_params)
 
         return super(OAuth1Session, self).request(method, url, **req_kwargs)
-
-    def _parse_optional_params(self, oauth_params, req_kwargs):
-        '''
-        Parses and sets optional OAuth parameters on a request.
-
-        :param oauth_param: The OAuth parameter to parse.
-        :type oauth_param: str
-        :param req_kwargs: The keyworded arguments passed to the request
-            method.
-        :type req_kwargs: dict
-        '''
-        params = req_kwargs.get('params', {})
-        data = req_kwargs.get('data') or {}
-
-        for oauth_param in OPTIONAL_OAUTH_PARAMS:
-            if oauth_param in params:
-                oauth_params[oauth_param] = params.pop(oauth_param)
-            if oauth_param in data:
-                oauth_params[oauth_param] = data.pop(oauth_param)
-
-            if params:
-                req_kwargs['params'] = params
-
-            if data:
-                req_kwargs['data'] = data
-
-    def _get_oauth_params(self, req_kwargs):
-        '''Prepares OAuth params for signing.'''
-        oauth_params = {}
-
-        oauth_params['oauth_consumer_key'] = self.consumer_key
-        oauth_params['oauth_nonce'] = sha1(str(random())).hexdigest()
-        oauth_params['oauth_signature_method'] = self.signature.NAME
-        oauth_params['oauth_timestamp'] = int(time())
-
-        if self.access_token is not None:
-            oauth_params['oauth_token'] = self.access_token
-
-        oauth_params['oauth_version'] = self.VERSION
-
-        self._parse_optional_params(oauth_params, req_kwargs)
-
-        return oauth_params
-
-    def _get_auth_header(self, oauth_params, realm=None):
-        '''Constructs and returns an authentication header.'''
-        auth_header = 'OAuth realm="{realm}"'.format(realm=realm or '')
-        params = ''
-        for k, v in oauth_params.items():
-            params += ',{key}="{value}"'.format(key=k, value=quote(str(v)))
-        auth_header += params
-        return auth_header
 
 
 class OAuth2Session(RauthSession):

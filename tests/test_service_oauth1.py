@@ -65,8 +65,8 @@ class OAuth1ServiceTestCase(RauthTestCase, RequestMixin, HttpMixin):
         return auth_header
 
     @patch.object(rauth.session.HmacSha1Signature, 'sign')
-    @patch.object(rauth.session, 'time')
-    @patch.object(rauth.session, 'random')
+    @patch.object(rauth.oauth1, 'time')
+    @patch.object(rauth.oauth1, 'random')
     @patch.object(requests.Session, 'request')
     def fake_request(self,
                      method,

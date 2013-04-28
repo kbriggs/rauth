@@ -7,8 +7,8 @@
 '''
 
 from base import RauthTestCase
-from rauth.oauth import (HmacSha1Signature, RsaSha1Signature,
-                         PlaintextSignature)
+from rauth.oauth1 import (HmacSha1Signature, RsaSha1Signature,
+                          PlaintextSignature)
 from rauth.utils import FORM_URLENCODED
 
 
